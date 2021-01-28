@@ -1,0 +1,47 @@
+footer {
+    visibility: hidden;
+}
+
+/* Hide color bar on mobile */
+@media screen and (max-width: 768px) {
+    .header-bar {
+        display: none;
+    }
+
+    .wy-nav-content-wrap {
+        margin-left: 0px;
+    }
+
+    .wy-nav-side {
+        width: 300px;
+    }
+
+    .wy-nav-side.shift {
+        max-width: 320px;
+    }
+
+    /* Fix sidebar adjust */
+    .rst-versions {
+        width: 85%;
+        max-width: 320px;
+    }
+}
+
+/* Handle landscape */
+@media screen and (min-width: 377px) {
+    .wy-nav-content-wrap.shift {
+        left: 320px;
+    }
+}
+
+@media screen and (min-width: 1440px) {
+    .wy-nav-content {
+        max-width: 1200px !important;
+    }
+}
+
+@media screen and (min-width: 1680px) {
+    .wy-nav-content {
+        max-width: 1300px !important;
+    }
+}

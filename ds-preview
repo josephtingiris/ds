@@ -1,0 +1,478 @@
+#!/bin/bash
+
+# 20201210 - joseph.tingiris@gmail.com
+
+# TODO: USe case statements and fail for invalid command line arguments; accidents happen
+
+#
+# Functions
+#
+
+function usage() {
+    echo
+    echo "$0 -n <name> [-s <step> [-l <last step}>]] <[-c|create] [-d|delete] [-v|verify] [-e|edit]> [--build] [--nowait] [--test] [--tldr]"
+    echo
+    if [ "$1" != "" ]; then
+        echo "$@"
+        echo
+    fi
+    exit 2
+}
+
+if [ "$1" == "" ]; then
+    usage
+fi
+
+#
+# Main
+#
+
+BUILD=0
+CREATE=0
+DELETE=0
+EDIT=0
+TEST=0
+TLDR=0
+VERIFY=0
+
+DS_ACTION="${1}"
+DS_BASENAME="ds"
+DS_ARGUMENTS=$@
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -b|-build|--build|build)
+            BUILD=1
+            ;;
+        -c|-create|--create|create)
+            CREATE=1
+            ;;
+        -d|-delete|--delete|delete)
+            DELETE=1
+            ;;
+        -e|-edit|--edit|edit)
+            EDIT=1
+            ;;
+        -l|-laststep|--laststep|lstep)
+            [ "${2:0:1}" != "-" ] && LAST_STEP="$2" && shift
+            ;;
+        -n|-name|--name|name)
+            if [ "${2:0:1}" != "-" ]; then
+                export DS_NAME="$2"
+                shift
+            else
+                usage "must specify a name"
+            fi
+            ;;
+        --nowait)
+            export DS_NOWAIT=1
+            ;;
+        -s|-step|--step|step)
+            [ "${2:0:1}" != "-" ] && STEP="$2" && shift
+            ;;
+        -t|-test|--test|test)
+            TEST=1
+            ;;
+        --tldr)
+            TLDR=1
+            ;;
+        -v|-verify|--verify|verify)
+            VERIFY=1
+            ;;
+    esac
+    shift
+done
+
+if [ "${DS_NAME}" == "" ]; then
+    usage "no -n name specified"
+fi
+
+if [ ${CREATE} -eq 0 ]; then
+    if [ ${DELETE} -eq 0 ]; then
+        if [ ${VERIFY} -eq 0 ]; then
+            usage "must specify at least one of -c -d -v"
+        fi
+    fi
+fi
+
+DS_DIR=$(realpath $(dirname ${0}))
+
+# source config before include!
+if [ -f "${DS_DIR}/${DS_BASENAME}-config.env" ]; then
+    source "${DS_DIR}/${DS_BASENAME}-config.env"
+fi
+
+if [ -f "${DS_DIR}/include/${DS_BASENAME}-include.sh" ]; then
+    source "${DS_DIR}/include/${DS_BASENAME}-include.sh"
+else
+    echo "aborting ... ${DS_BASENAME}-include.sh file not found"
+    exit 2
+fi
+
+if [ -f "${DS_DIR}/include/${DS_BASENAME}-${DS_NAME}-include.sh" ]; then
+    source "${DS_DIR}/include/${DS_BASENAME}-${DS_NAME}-include.sh"
+fi
+
+echo "Start : $(date +%Y-%m-%d\ %H:%M:%S)"
+echo
+
+echo "DS_NAME        = ${DS_NAME}"
+echo "DS_BIN         = ${DS_BIN}"
+echo "DS_DIR         = ${DS_DIR}"
+if [ "${DS_PROJECT_ENV}" != "" ]; then
+    echo "DS_PROJECT_ENV = ${DS_PROJECT_ENV}"
+fi
+
+echo "BUILD          = ${BUILD}"
+echo "CREATE         = ${CREATE}"
+echo "DELETE         = ${DELETE}"
+echo "VERIFY         = ${VERIFY}"
+echo "EDIT           = ${EDIT}"
+echo "TEST           = ${TEST}"
+echo "TLDR           = ${DS_TLDR}"
+
+if [ ${#STEP} -gt 0 ]; then
+    if [[ "${STEP}" =~ [0-9]+ ]]; then
+        FIRST_STEP=${STEP}
+    else
+        FIRST_STEP=1
+    fi
+    echo "STEP_DIR       = ${STEP_DIR}"
+    echo "STEP           = ${STEP}"
+else
+    FIRST_STEP=1
+fi
+
+echo "FIRST_STEP     = ${FIRST_STEP}"
+if [[ "${LAST_STEP}" =~ [0-9]+ ]]; then
+    echo "LAST_STEP      = ${LAST_STEP}"
+else
+    echo "LAST_STEP      = automatic"
+fi
+
+echo
+
+if [ ${BUILD} -eq 1 ]; then
+    if [ ${#EXTRA_ARGS} -gt 0 ]; then EXTRA_ARGS+=" "; fi
+    EXTRA_ARGS+="--build"
+fi
+
+CREATE_SECONDS=0
+DELETE_SECONDS=0
+VERIFY_SECONDS=0
+EDIT_SECONDS=0
+
+SECONDS=0
+if [ ${DELETE} -eq 1 ]; then
+    if [ "${DS_PROJECT_ENV}" == "" ]; then
+        TLDR_OUT="${DS_DIR}/docs/preview-delete-tldr.md"
+    else
+        TLDR_OUT="${DS_DIR}/docs/preview-delete-tldr.${DS_PROJECT_ENV}.md"
+    fi
+    cat /dev/null > "${TLDR_OUT}"
+
+    export DS_MARKDOWN=1
+
+    PRE_TLDR=${DS_TLDR}
+    export DS_TLDR=1
+    environmentVariables preview > "${TLDR_OUT}"
+    export DS_TLDR=${PRE_TLDR}
+    unset PRE_TLDR
+
+    if [ ${TLDR} -eq 0 ]; then
+        if [ "${DS_PROJECT_ENV}" == "" ]; then
+            DELETE_OUT="${DS_DIR}/docs/preview-delete.md"
+        else
+            DELETE_OUT="${DS_DIR}/docs/preview-delete.${DS_PROJECT_ENV}.md"
+        fi
+        cat /dev/null > "${DELETE_OUT}"
+
+        environmentVariables preview >> "${DELETE_OUT}"
+    fi
+
+    if [[ ! "${LAST_STEP}" =~ [0-9]+ ]]; then
+        LAST_STEP=$(${DS_BIN} delete -n ${DS_NAME} --toc --markdown | grep ^[0-9] | tail -1 | awk '{print $1}' | awk -F\. '{print $1}' | grep ^[0-9])
+        if [[ ! "${LAST_STEP}" =~ [0-9]+ ]]; then
+            LAST_STEP=100
+        fi
+    fi
+
+    if [ ${LAST_STEP} -lt ${FIRST_STEP} ]; then
+        aborting "there is no step ${FIRST_STEP}"
+        exit 3
+    fi
+
+    if [ "${FIRST_STEP}" != "0" ] && [ ${TLDR} -eq 0 ]; then
+        printf "## PREVIEW delete step ${LAST_STEP} to ${FIRST_STEP}\n\n" > "${DELETE_OUT}"
+    fi
+
+    echo
+    echoStatus "delete step ${LAST_STEP} to ${FIRST_STEP}"
+    echo
+
+    for ((s=${LAST_STEP}; s>=${FIRST_STEP}; s--)); do
+        # help files
+        if [ ${EDIT} -eq 1 ]; then
+            echoStatus "${DS_BASENAME} delete -n ${DS_NAME} --toc -e -f -s ${s}"
+            ${DS_BIN} delete -n ${DS_NAME} --toc -e -f -s ${s}
+        else
+            echoStatus "${DS_BASENAME} delete -n ${DS_NAME} --toc -e -s ${s}"
+            ${DS_BIN} delete -n ${DS_NAME} --toc -e -s ${s}
+        fi
+
+        if [ ${TLDR} -eq 0 ]; then
+            echoStatus "${DS_BASENAME} delete -n ${DS_NAME} --markdown ${EXTRA_ARGS} -s ${s} --tldr"
+            time ${DS_BIN} delete -n ${DS_NAME} --markdown ${EXTRA_ARGS} -s ${s} --tldr >> "${TLDR_OUT}"
+            echo
+            echoStatus "${DS_BASENAME} delete -n ${DS_NAME} --markdown ${EXTRA_ARGS} -s ${s}"
+            time ${DS_BIN} delete -n ${DS_NAME} --markdown ${EXTRA_ARGS} -s ${s} >> "${DELETE_OUT}"
+
+            if [ $? -ne 0 ]; then aborting "delete step ${s} failed"; exit 4; fi
+        else
+            echoStatus "${DS_BASENAME} delete -n ${DS_NAME} --markdown ${EXTRA_ARGS} -s ${s} --tldr"
+            time ${DS_BIN} delete -n ${DS_NAME} --markdown ${EXTRA_ARGS} -s ${s} --tldr >> "${TLDR_OUT}"
+
+            if [ $? -ne 0 ]; then aborting "delete step ${s} failed"; exit 4; fi
+        fi
+        echo
+    done
+    unset s
+
+    DELETE_SECONDS=${SECONDS}
+
+    echo
+    echo "DELETE SECONDS=${DELETE_SECONDS} MINUTES=$((${DELETE_SECONDS}/60))"
+    echo
+fi
+
+#if [ ${DELETE} -eq 1 ] && [ ${CREATE} -eq 1 ]; then
+#waiting 240 "create/delete pause"
+#fi
+
+SECONDS=0
+if [ ${CREATE} -eq 1 ]; then
+    if [ "${DS_PROJECT_ENV}" == "" ]; then
+        TLDR_OUT="${DS_DIR}/docs/preview-tldr.md"
+    else
+        TLDR_OUT="${DS_DIR}/docs/preview-tldr.${DS_PROJECT_ENV}.md"
+    fi
+    cat /dev/null > "${TLDR_OUT}"
+
+    if [ ${TLDR} -eq 0 ]; then
+        if [ "${DS_PROJECT_ENV}" == "" ]; then
+            CREATE_OUT="${DS_DIR}/docs/preview.md"
+        else
+            CREATE_OUT="${DS_DIR}/docs/preview.${DS_PROJECT_ENV}.md"
+        fi
+        cat /dev/null > "${CREATE_OUT}"
+    fi
+
+    if [ ${#STEP} -gt 0 ]; then
+        if [[ ! "${LAST_STEP}" =~ [0-9]+ ]]; then
+            LAST_STEP=$(${DS_BIN} delete -n ${DS_NAME} --toc --markdown | grep ^[0-9] | tail -1 | awk '{print $1}' | awk -F\. '{print $1}' | grep ^[0-9])
+            if [[ ! "${LAST_STEP}" =~ [0-9]+ ]]; then
+                LAST_STEP=100
+            fi
+        fi
+
+        if [ ${FIRST_STEP} -gt ${LAST_STEP} ]; then
+            aborting "there is no step ${FIRST_STEP}"
+            exit 3
+        fi
+
+        if [ "${FIRST_STEP}" != "0" ] && [ ${TLDR} -eq 0 ]; then
+            printf "## PREVIEW create step ${FIRST_STEP} to ${LAST_STEP}\n\n" > "${CREATE_OUT}"
+        fi
+
+        echo
+        echoStatus "create step ${FIRST_STEP} to ${LAST_STEP}"
+
+        for ((s=${FIRST_STEP}; s<=${LAST_STEP}; s++)); do
+            echo
+            echoStatus "create step ${s}"
+
+            # help files
+            if [ ${EDIT} -eq 1 ]; then
+                echoStatus "${DS_BASENAME} create -n ${DS_NAME} --toc -e -f -s ${s}"
+                ${DS_BIN} create -n ${DS_NAME} --toc -e -f -s ${s}
+            else
+                echoStatus "${DS_BASENAME} create -n ${DS_NAME} --toc -e -s ${s}"
+                ${DS_BIN} create -n ${DS_NAME} --toc -e -s ${s}
+            fi
+
+            if [ ${TLDR} -eq 0 ]; then
+                echoStatus "${DS_BASENAME} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr -s ${s}"
+                time ${DS_BIN} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr -s ${s} >> "${TLDR_OUT}"
+                echo
+                echoStatus "${DS_BASENAME} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} -s ${s}"
+                time ${DS_BIN} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} -s ${s} >> "${CREATE_OUT}"
+
+                if [ $? -ne 0 ]; then aborting "create step ${s} failed"; exit 4; fi
+            else
+                echoStatus "${DS_BASENAME} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr -s ${s}"
+                time ${DS_BIN} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr -s ${s} >> "${TLDR_OUT}"
+
+                if [ $? -ne 0 ]; then aborting "create step ${s} failed"; exit 4; fi
+            fi
+        done
+        unset s
+    else
+        echo
+        echoStatus "create all ..."
+        echo
+
+        # help files
+        if [ ${EDIT} -eq 1 ]; then
+            ${DS_BIN} create -n ${DS_NAME} --toc -e -f
+        else
+            ${DS_BIN} create -n ${DS_NAME} --toc -e
+        fi
+
+        EDIT_SECONDS=${SECONDS}
+
+        if [ ${TLDR} -eq 0 ]; then
+            echoStatus "${DS_BASENAME} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr"
+            time ${DS_BIN} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr > "${TLDR_OUT}"
+            echo
+            echoStatus "${DS_BASENAME} create -n ${DS_NAME} --markdown ${EXTRA_ARGS}"
+            time ${DS_BIN} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} > "${CREATE_OUT}"
+        else
+            echoStatus "${DS_BASENAME} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr"
+            time ${DS_BIN} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr > "${TLDR_OUT}"
+        fi
+    fi
+
+    CREATE_SECONDS=${SECONDS}
+
+    echo
+    echo "CREATE SECONDS=${CREATE_SECONDS} MINUTES=$((${CREATE_SECONDS}/60))"
+    echo
+fi
+
+SECONDS=0
+if [ ${VERIFY} -eq 1 ]; then
+    if [ "${DS_PROJECT_ENV}" == "" ]; then
+        TLDR_OUT="${DS_DIR}/docs/preview-tldr.md"
+    else
+        TLDR_OUT="${DS_DIR}/docs/preview-tldr.${DS_PROJECT_ENV}.md"
+    fi
+    cat /dev/null > "${TLDR_OUT}"
+
+    if [ ${TLDR} -eq 0 ]; then
+        if [ "${DS_PROJECT_ENV}" == "" ]; then
+            VERIFY_OUT="${DS_DIR}/docs/preview.md"
+        else
+            VERIFY_OUT="${DS_DIR}/docs/preview.${DS_PROJECT_ENV}.md"
+        fi
+        cat /dev/null > "${VERIFY_OUT}"
+    fi
+
+    if [ ${#STEP} -gt 0 ]; then
+        if [[ ! "${LAST_STEP}" =~ [0-9]+ ]]; then
+            LAST_STEP=$(${DS_BIN} delete -n ${DS_NAME} --toc --markdown | grep ^[0-9] | tail -1 | awk '{print $1}' | awk -F\. '{print $1}' | grep ^[0-9])
+            if [[ ! "${LAST_STEP}" =~ [0-9]+ ]]; then
+                LAST_STEP=100
+            fi
+        fi
+
+        if [ ${FIRST_STEP} -gt ${LAST_STEP} ]; then
+            aborting "there is no step ${FIRST_STEP}"
+            exit 3
+        fi
+
+        if [ "${FIRST_STEP}" != "0" ] && [ ${TLDR} -eq 0 ]; then
+            printf "## PREVIEW verify step ${FIRST_STEP} to ${LAST_STEP}\n\n" > "${VERIFY_OUT}"
+        fi
+
+        echo
+        echoStatus "verify step ${FIRST_STEP} to ${LAST_STEP}"
+
+        for ((s=${FIRST_STEP}; s<=${LAST_STEP}; s++)); do
+            echo
+            echoStatus "verify step ${s}"
+
+            # help files
+            if [ ${EDIT} -eq 1 ]; then
+                echoStatus "${DS_BASENAME} verify -n ${DS_NAME} --toc -e -f -s ${s}"
+                ${DS_BIN} verify -n ${DS_NAME} --toc -e -f -s ${s}
+            else
+                echoStatus "${DS_BASENAME} verify -n ${DS_NAME} --toc -e -s ${s}"
+                ${DS_BIN} verify -n ${DS_NAME} --toc -e -s ${s}
+            fi
+
+            if [ ${TLDR} -eq 0 ]; then
+                echoStatus "${DS_BASENAME} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr -s ${s}"
+                time ${DS_BIN} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr -s ${s} >> "${TLDR_OUT}"
+                echo
+                echoStatus "${DS_BASENAME} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} -s ${s}"
+                time ${DS_BIN} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} -s ${s} >> "${VERIFY_OUT}"
+
+                if [ $? -ne 0 ]; then aborting "verify step ${s} failed"; exit 4; fi
+            else
+                echoStatus "${DS_BASENAME} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr -s ${s}"
+                time ${DS_BIN} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr -s ${s} >> "${TLDR_OUT}"
+
+                if [ $? -ne 0 ]; then aborting "verify step ${s} failed"; exit 4; fi
+            fi
+        done
+        unset s
+    else
+        echo
+        echoStatus "verify all ..."
+        echo
+
+        # help files
+        if [ ${EDIT} -eq 1 ]; then
+            echoStatus "${DS_BASENAME} verify -n ${DS_NAME} --toc -e -f"
+            ${DS_BIN} verify -n ${DS_NAME} --toc -e -f
+        else
+            echoStatus "${DS_BASENAME} verify -n ${DS_NAME} --toc -e"
+            ${DS_BIN} verify -n ${DS_NAME} --toc -e
+        fi
+
+        EDIT_SECONDS=${SECONDS}
+
+        if [ ${TLDR} -eq 0 ]; then
+            echoStatus "${DS_BASENAME} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr"
+            time ${DS_BIN} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr > "${TLDR_OUT}"
+            echo
+            echoStatus "${DS_BASENAME} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS}"
+            time ${DS_BIN} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} > "${VERIFY_OUT}"
+        else
+            echoStatus "${DS_BASENAME} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr"
+            time ${DS_BIN} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr > "${TLDR_OUT}"
+        fi
+    fi
+
+    VERIFY_SECONDS=${SECONDS}
+
+    echo
+    echo "VERIFY SECONDS=${VERIFY_SECONDS} MINUTES=$((${VERIFY_SECONDS}/60))"
+    echo
+fi
+
+echo "-----------------------------------------------------------------------------------------------------------"
+echo
+
+let TOTAL_SECONDS=${CREATE_SECONDS}+${DELETE_SECONDS}+${VERIFY_SECONDS}+${EDIT_SECONDS}
+
+if [ ${EDIT} -eq 1 ] && [ ${EDIT_SECONDS} -gt 0 ]; then
+    echo "EDIT   SECONDS=${EDIT_SECONDS} MINUTES=$((${EDIT_SECONDS}/60))"
+fi
+
+if [ ${DELETE} -eq 1 ] && [ ${DELETE_SECONDS} -gt 0 ]; then
+    echo "DELETE SECONDS=${DELETE_SECONDS} MINUTES=$((${DELETE_SECONDS}/60))"
+fi
+
+if [ ${CREATE} -eq 1 ] && [ ${CREATE_SECONDS} -gt 0 ]; then
+    echo "CREATE SECONDS=${CREATE_SECONDS} MINUTES=$((${CREATE_SECONDS}/60))"
+fi
+
+if [ ${VERIFY} -eq 1 ] && [ ${VERIFY_SECONDS} -gt 0 ]; then
+    echo "VERIFY SECONDS=${VERIFY_SECONDS} MINUTES=$((${VERIFY_SECONDS}/60))"
+fi
+
+echo "TOTAL  SECONDS=${TOTAL_SECONDS} MINUTES=$((${TOTAL_SECONDS}/60))"
+
+echo
+echo "Finish : $(date +%Y-%m-%d\ %H:%M:%S)"
+echo

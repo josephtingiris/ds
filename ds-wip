@@ -1,0 +1,245 @@
+#!/bin/bash
+
+# 20201210 - joseph.tingiris@gmail.com
+
+#
+# Functions
+#
+
+function usage() {
+    echo
+    echo "$0 -n <name> -s <step> <[-c|create] [-d|delete] [-v|verify] [-e|edit]> [--build] [--nowait] [--test] [--tldr]"
+    echo
+    if [ "$1" != "" ]; then
+        echo "$@"
+        echo
+    fi
+    exit 2
+}
+
+#
+# Main
+#
+
+if [ "$1" == "" ]; then
+    usage
+fi
+
+BUILD=0
+CREATE=0
+DELETE=0
+EDIT=0
+TEST=0
+TLDR=0
+VERIFY=0
+
+DS_ACTION="${1}"
+DS_BASENAME="ds"
+DS_ARGUMENTS=$@
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -b|-build|--build|build)
+            BUILD=1
+            ;;
+        -c|-create|--create|create)
+            CREATE=1
+            ;;
+        -d|-delete|--delete|delete)
+            DELETE=1
+            ;;
+        -e|-edit|--edit|edit)
+            EDIT=1
+            ;;
+        -n|-name|--name|name)
+            if [ "${2:0:1}" != "-" ]; then
+                export DS_NAME="$2"
+                shift
+            else
+                usage "must specify a name"
+            fi
+            ;;
+        --nowait)
+            export DS_NOWAIT=1
+            ;;
+        -s|-step|--step|step)
+            [ "${2:0:1}" != "-" ] && STEP="$2" && shift
+            ;;
+        -t|-test|--test|test)
+            TEST=1
+            ;;
+        --tldr)
+            TLDR=1
+            ;;
+        -v|-verify|--verify|verify)
+            VERIFY=1
+            ;;
+    esac
+    shift
+done
+
+if [ "${DS_NAME}" == "" ]; then
+    usage "no -n name specified"
+fi
+
+if [ "${STEP}" == "" ]; then
+    usage "must specify -s step number"
+else
+    export STEP
+fi
+
+if [ ${CREATE} -eq 0 ]; then
+    if [ ${DELETE} -eq 0 ]; then
+        if [ ${VERIFY} -eq 0 ]; then
+            usage "must specify at least one of -c -d -v"
+        fi
+    fi
+fi
+
+DS_DIR=$(realpath $(dirname ${0}))
+
+# source config before include!
+if [ -f "${DS_DIR}/${DS_BASENAME}-config.env" ]; then
+    source "${DS_DIR}/${DS_BASENAME}-config.env"
+fi
+
+if [ -f "${DS_DIR}/include/${DS_BASENAME}-include.sh" ]; then
+    source "${DS_DIR}/include/${DS_BASENAME}-include.sh"
+else
+    echo "aborting ... ${DS_BASENAME}-include.sh file not found"
+    exit 2
+fi
+
+if [ -f "${DS_DIR}/include/${DS_BASENAME}-${DS_NAME}-include.sh" ]; then
+    source "${DS_DIR}/include/${DS_BASENAME}-${DS_NAME}-include.sh"
+fi
+
+echo "Start : $(date +%Y-%m-%d\ %H:%M:%S)"
+echo
+
+echo "DS_NAME        = ${DS_NAME}"
+echo "DS_DIR         = ${DS_DIR}"
+echo "DS_BIN         = ${DS_BIN}"
+if [ "${DS_PROJECT_ENV}" != "" ]; then
+    echo "DS_PROJECT_ENV = ${DS_PROJECT_ENV}"
+fi
+
+echo "BUILD          = ${BUILD}"
+echo "CREATE         = ${CREATE}"
+echo "DELETE         = ${DELETE}"
+echo "VERIFY         = ${VERIFY}"
+echo "EDIT           = ${EDIT}"
+echo "TEST           = ${TEST}"
+echo "TLDR           = ${DS_TLDR}"
+
+if [ ${#STEP} -gt 0 ]; then
+    echo "STEP           = ${STEP}"
+    echo "STEP_DIR       = ${STEP_DIR}"
+fi
+
+echo
+
+if [ ${BUILD} -eq 1 ]; then
+    if [ ${#EXTRA_ARGS} -gt 0 ]; then EXTRA_ARGS+=" "; fi
+    EXTRA_ARGS+="--build"
+fi
+
+if [ ${EDIT} -eq 1 ]; then
+    EDIT_ARGS="-e -f"
+else
+    EDIT_ARGS="-e"
+fi
+
+if [ ${DELETE} -eq 1 ]; then
+    if [ "${DS_PROJECT_ENV}" == "" ]; then
+        TLDR_OUT="${DS_DIR}/docs/wip-delete-tldr.md"
+        DELETE_OUT="${DS_DIR}/docs/wip-delete.md"
+    else
+        TLDR_OUT="${DS_DIR}/docs/wip-delete-tldr.${DS_PROJECT_ENV}.md"
+        DELETE_OUT="${DS_DIR}/docs/wip-delete.${DS_PROJECT_ENV}.md"
+    fi
+
+    echo
+    echoStatus "${DS_BASENAME} delete -n ${DS_NAME} --toc ${EDIT_ARGS} ${EXTRA_ARGS}"
+    echo
+    time ${DS_BIN} delete -n ${DS_NAME} --toc ${EDIT_ARGS} ${EXTRA_ARGS}
+
+    echo
+    echoStatus "${DS_BASENAME} delete -n ${DS_NAME} --markdown ${EXTRA_ARGS} ..."
+    echo
+    if [ ${TLDR} -eq 0 ]; then
+        time ${DS_BIN} delete -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr | tee "${TLDR_OUT}"
+        time ${DS_BIN} delete -n ${DS_NAME} --markdown ${EXTRA_ARGS} | tee "${DELETE_OUT}"
+    else
+        time ${DS_BIN} delete -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr | tee "${TLDR_OUT}"
+    fi
+fi
+
+if [ ${CREATE} -eq 1 ]; then
+    if [ ! -d "${DS_DIR}/docs/steps" ]; then
+        mkdir -p "${DS_DIR}/docs/steps"
+    fi
+
+    if [ "${DS_PROJECT_ENV}" == "" ]; then
+        STEP_OUT="${DS_DIR}/docs/steps/${STEP}.md"
+        TLDR_OUT="${DS_DIR}/docs/wip-tldr.md"
+        CREATE_OUT="${DS_DIR}/docs/wip.md"
+    else
+        STEP_OUT="${DS_DIR}/docs/steps/${STEP}.${DS_PROJECT_ENV}.md"
+        TLDR_OUT="${DS_DIR}/docs/wip-tldr.${DS_PROJECT_ENV}.md"
+        CREATE_OUT="${DS_DIR}/docs/wip.${DS_PROJECT_ENV}.md"
+    fi
+
+    echo
+    echoStatus "${DS_BASENAME} create -n ${DS_NAME} --toc ${EDIT_ARGS} ${EXTRA_ARGS}"
+    echo
+
+    time ${DS_BIN} create -n ${DS_NAME} --toc ${EDIT_ARGS} ${EXTRA_ARGS}
+
+    echo
+    echoStatus "${DS_BASENAME} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} ..."
+    echo
+
+    if [ ${TLDR} -eq 0 ]; then
+        time ${DS_BIN} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr | tee "${TLDR_OUT}"
+        time ${DS_BIN} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} | tee "${CREATE_OUT}"
+        cp "${CREATE_OUT}" "${STEP_OUT}"
+        if [ $? -ne 0 ]; then
+            aborting "failed to cp '${CREATE_OUT}' '${STEP_OUT}'"
+        fi
+    else
+        time ${DS_BIN} create -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr | tee "${TLDR_OUT}"
+    fi
+fi
+
+if [ ${VERIFY} -eq 1 ]; then
+    if [ "${DS_PROJECT_ENV}" == "" ]; then
+        TLDR_OUT="${DS_DIR}/docs/wip-tldr.md"
+        VERIFY_OUT="${DS_DIR}/docs/wip.md"
+    else
+        TLDR_OUT="${DS_DIR}/docs/wip-tldr.${DS_PROJECT_ENV}.md"
+        VERIFY_OUT="${DS_DIR}/docs/wip.${DS_PROJECT_ENV}.md"
+    fi
+
+    if [ ${CREATE} -eq 0 ]; then
+        echo
+        echoStatus "${DS_BASENAME} verify -n ${DS_NAME} --toc ${EDIT_ARGS} ${EXTRA_ARGS}"
+        echo
+
+        time ${DS_BIN} verify -n ${DS_NAME} --toc ${EDIT_ARGS} ${EXTRA_ARGS}
+    fi
+
+    echo
+    echoStatus "${DS_BASENAME} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} ..."
+    echo
+
+    if [ ${TLDR} -eq 0 ]; then
+        time ${DS_BIN} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr | tee "${TLDR_OUT}"
+        time ${DS_BIN} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} | tee "${VERIFY_OUT}"
+    else
+        time ${DS_BIN} verify -n ${DS_NAME} --markdown ${EXTRA_ARGS} --tldr | tee "${TLDR_OUT}"
+    fi
+fi
+
+echo
+echo "Finish : $(date +%Y-%m-%d\ %H:%M:%S)"
+echo

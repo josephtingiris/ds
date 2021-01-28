@@ -1,0 +1,17 @@
+# helpful pypi modules used by mkdocs
+backports-abc
+Click
+futures
+Jinja2
+lektor-markdown-admonition
+livereload
+Markdown
+MarkupSafe
+mkdocs
+mkdocs-material
+Pygments
+pymdown-extensions
+PyYAML
+singledispatch
+six
+tornado

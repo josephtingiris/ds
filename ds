@@ -1,0 +1,204 @@
+#!/bin/bash
+
+#
+# This script automates the build & documentation of steps
+#
+
+# CHANGELOG
+
+# 20201020, joseph.tingiris@gmail.com, created
+
+# TODO
+
+DS_ACTION=""
+DS_ARGUMENTS="$@"
+DS_DIR=$(realpath $(dirname ${0}))
+DS_EDIT_HELP=0
+DS_FORCE=0
+DS_MARKDOWN=0
+DS_NAME=${DS_NAME:-"ds"}
+DS_RENAME=0 # 0=off, 1=on
+DS_TLDR=0
+DS_TOC=0
+DS_TOUCH=0
+DS_NOWAIT=${DS_NOWAIT:-"0"}
+DS_WD="$(dirname "${0}" 2> /dev/null)"
+
+#
+# Arguments
+#
+
+function usage() {
+    printf "\nusage: $0 [checkpoint|clean|create|delete|eval|helpcheck|verify] [--build] [--edit-help] [--force] [--name <ds>] [--markdown] [--nowait] [--rename] [--step <step>] [--toc] [--touch] [--tldr]\n\n"
+    if [ "$1" != "" ]; then
+        echo $@
+        echo
+    fi
+    exit 1
+}
+
+if [ "${1}" == "" ]; then
+    usage
+fi
+
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -b|-build|--build)
+            DS_BUILD=1
+            ;;
+        -c|-create|--create|create)
+            [ "${DS_ACTION}" == "" ] && DS_ACTION="create"
+            ;;
+        -d|-delete|--delete|delete)
+            [ "${DS_ACTION}" == "" ] && DS_ACTION="delete"
+            ;;
+        -e|-edit|--edit|-edit-help|--edit-help)
+            DS_EDIT_HELP=1
+            ;;
+        -f|-force|--force)
+            DS_FORCE=1
+            ;;
+        checkhelp|helpcheck)
+            [ "${DS_ACTION}" == "" ] && DS_ACTION="helpcheck"
+            ;;
+        checkpoint)
+            [ "${DS_ACTION}" == "" ] && DS_ACTION="checkpoint"
+            ;;
+        clean)
+            [ "${DS_ACTION}" == "" ] && DS_ACTION="clean"
+            ;;
+        -eval|--eval|eval)
+            [ "${DS_ACTION}" == "" ] && DS_ACTION="eval"
+            ;;
+        -m|-markdown|--markdown)
+            DS_MARKDOWN=1
+            ;;
+        -n|-name|--name|name)
+            if [ "${2:0:1}" != "-" ]; then
+                export DS_NAME="$2"
+                shift
+            else
+                usage "must specify a name"
+            fi
+            ;;
+        --nowait)
+            DS_NOWAIT=1
+            ;;
+        -r|-rename|--rename)
+            DS_RENAME=1
+            ;;
+        -s|-step|--step|step)
+            [ "${2:0:1}" != "-" ] && STEP="$2" && shift
+            ;;
+        -tldr|--tldr|tldr)
+            DS_TLDR=1
+            ;;
+        -t|-toc|--toc|toc)
+            DS_TOC=1
+            ;;
+        -touch|--touch|touch)
+            DS_TOUCH=1
+            ;;
+        -v|-verify|--verify|verify)
+            [ "${DS_ACTION}" == "" ] && DS_ACTION="verify"
+            ;;
+        *)
+            if [ "${DS_ACTION}" != "checkpoint" ]; then
+                usage "Unknown argument '$1'"
+            fi
+            ;;
+    esac
+    shift
+done
+
+if [ "${DS_NAME}" == "checkpoint" ] || [ "${DS_NAME}" == "clean" ] || [ "${DS_NAME}" == "create" ] || [ "${DS_NAME}" == "delete" ] || [ "${DS_NAME}" == "eval" ] || [ "${DS_NAME}" == "verify" ]; then
+    usage "argument processing failure"
+fi
+
+#
+# Main
+#
+
+if [ "${DS_WD}" == "" ] || [ ! -d "${DS_WD}" ]; then
+    aborting "invalid working directory (install coreutils)"
+fi
+
+if [ "${DS_ACTION}" == "checkpoint" ]; then
+    $0 clean
+
+    echo
+    git diff --staged
+    git diff .
+
+    git add .
+    echo
+
+    echo -n "Commit? "
+    read YES
+    if [ "${YES,,}" == "yes" ] || [ "${YES,,}" == "y" ]; then
+        echo
+        git commit -m "${DS_ARGUMENTS[@]}"
+    fi
+
+    echo
+    git status
+    echo
+    exit
+fi
+
+# source config before include!
+if [ -f "${DS_DIR}/ds-config.env" ]; then
+    source "${DS_DIR}/ds-config.env"
+fi
+
+if [ -f "${DS_DIR}/include/ds-include.sh" ]; then
+    source "${DS_DIR}/include/ds-include.sh"
+else
+    echo "aborting ... ds-include.sh file not found"
+    exit 2
+fi
+
+if [ ! -d "${STEP_DIR}" ]; then
+    aborting "${STEP_DIR} directory not found"
+fi
+
+if [ -f "${DS_DIR}/include/ds-${DS_NAME}-include.sh" ]; then
+    source "${DS_DIR}/include/ds-${DS_NAME}-include.sh"
+fi
+
+if [ "${DS_ACTION}" == "clean" ]; then
+    find "${DS_DIR}" -name "*-${HOSTNAME}*.md"
+    find "${DS_DIR}" -name "*-${HOSTNAME}*.md" -print0 | xargs -r -0 rm
+    find "${DS_DIR}" -name "*-${HOSTNAME}*.sh"
+    find "${DS_DIR}" -name "*-${HOSTNAME}*.sh" -print0 | xargs -r -0 rm
+    cat "${STEP_DIR}/"* 2> /dev/null | egrep -e 'step |substep |STEP_NAME|SUBSTEP_NAME' | grep \" | egrep -ve '^.*#|;|/|^$' | awk -F \" '{print $2}' | sort -u | sed -e '/\^\^/s///g' -e '/,,/s///g' | envsubst | grep -v '^$' > /tmp/ds.help
+    grep STEP_NAME= ${DS_HELP_DIR}/../include/*sh | awk -F= '{print $NF}' | sed -e '/"/s///g' | sort -u | sed -e '/\^\^/s///g' -e '/,,/s///g' | envsubst | grep -v '^$' >> /tmp/ds.help
+    sort -u /tmp/ds.help -o /tmp/ds.help
+    #cat /tmp/ds.help && exit
+    #echo DS_HELP_DIR=${DS_HELP_DIR}
+    while read help_file; do
+        if [ "${help_file}" == "" ]; then continue; fi
+        help_name="${help_file//.md/}"
+        if ! grep -q "^${help_name}$" /tmp/ds.help; then
+            if [ -s "${DS_HELP_DIR}/${help_file}" ]; then
+                echo "found non-empty orphan help file = ${help_file}"
+                ls -l "${DS_HELP_DIR}/${help_file}"
+            else
+                if [ -w "${DS_HELP_DIR}/${help_file}" ]; then
+                    echo "removing empty orphan help file = ${help_file}"
+                    rm -f "${DS_HELP_DIR}/${help_file}"
+                fi
+            fi
+        fi
+    done <<< "$(ls -1 "${DS_HELP_DIR}")"
+    rm -f /tmp/ds.help &> /dev/null
+    exit
+fi
+
+stepHelpCheck
+
+echo
+stepLoop
+echo
+
+exit 0

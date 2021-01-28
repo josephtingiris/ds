@@ -1,0 +1,30 @@
+site_name: Document Steps (ds)
+google_analytics: ['', '']
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  #- pymdownx.superfences
+nav:
+  - About: about.md
+  - Index: index.md
+  - TLDR: tldr.md
+  #- Preview: preview.ipm-project.env.md
+  #- Preview TLDR: preview-tldr.ipm-project.env.md
+  #- Preview Delete: preview-delete.ipm-project.env.md
+  #- Preview Delete TLDR: preview-delete-tldr.ipm-project.env.md
+  #- WIP: wip.ipm-project.env.md
+  #- WIP TLDR: wip-tldr.ipm-project.env.md
+  #- WIP Delete: wip-delete.ipm-project.env.md
+  #- WIP Delete TLDR: wip-delete-tldr.ipm-project.env.md
+theme:
+  #name: material
+  name: readthedocs
+  custom_dir: docs/custom/
+extra_css:
+  - css/ds-extra.css
+site_url: https://example.com/docs/ds/
+site_dir: ./site/
+site_description: A brief how-to use ds.
+site_author: joseph.tingiris@gmail.com
+copyright: '&copy; 2021 Joseph Tingiris'
+use_directory_urls: true
